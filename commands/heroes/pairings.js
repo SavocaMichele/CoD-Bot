@@ -3,8 +3,8 @@ const wait = require('node:timers/promises').setTimeout;
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('build')
-        .setDescription('Sends Talent-Tree Builds of the given hero')
+        .setName('pairs')
+        .setDescription('Sends Pairing-Info of the given hero')
         .addStringOption(option =>
             option.setName('hero')
                 .setDescription('The Name of the Hero')
@@ -40,7 +40,7 @@ module.exports = {
 
     async execute(interaction) {
         const hero = interaction.options.getString('hero');
-        const data = await builds(hero);
+        let data   = await pairs(hero);
 
         if (data === 'Error') {
             await interaction.reply("No data available.");
@@ -50,7 +50,6 @@ module.exports = {
 
     },
 };
-
 
 async function heroes(hero) {
 
@@ -75,7 +74,7 @@ async function heroes(hero) {
 }
 
 
-async function builds(hero) {
+async function pairs(hero) {
 
     let data    = [];
     data        = await makeFetch(hero);
@@ -95,30 +94,56 @@ async function builds(hero) {
 
 async function makeFetch(hero, url) {
 
-    const figureMatch = /<figure[^>](.*?)<\/figure>/g;
-    const imageMatch  = /https?:[^)''"]+\.(?:jpg|jpeg|gif|png)/g;
-    let response      = await fetch(`https://callofdragonsguides.com/${hero.toLowerCase()}-talent-tree-build-and-guide/`);
-    let images        = [];
+    const titleMatch    = /<h3 class="wp-block-heading"><span id="[^>]*>(.*?)<\/span><\/h3>/g;
+    const contentMatch  = /<h3 class="wp-block-heading"><span id="[^>]*>.*?<\/span><\/h3>\n{0,10}<p>(.*?)<\/p>/g;
+    const specialMatch  = /<h2 class="wp-block-heading"><span id=".*?Pairings[^>]*>.*?<\/span><\/h2>\n{1,10}<p>(.*?)<\/p>\n{1,10}<p>(.*?)<\/p>/g
+    let response        = await fetch(`https://callofdragonsguides.com/${hero.toLowerCase()}-talent-tree-build-and-guide/`);
+    let titles          = [];
+    let contents        = [];
+    let data            = [];
 
     if (url) {
-        response      = await fetch(url)
+        response        = await fetch(url)
     }
 
-    let result        = await response.text();
+    let result          = await response.text();
+
 
     if (result) {
-        const matches = result.matchAll(figureMatch)
-        for (const match of matches) {
-            images.push(match[0].match(imageMatch));
+        const titleMatches = result.matchAll(titleMatch)
+        for (const match of titleMatches) {
+            titles.push(match[1]);
+        }
+
+        let contentMatches = result.matchAll(contentMatch)
+        for (const match of contentMatches) {
+            contents.push(match[1].replace(/(<a[^>]*>)/g, '').replace('</a>', '').replace('&nbsp;', ''));
+        }
+    }
+
+    if (contents.length === 0 && titles.length === 0) {
+        let specialMatches = result.matchAll(specialMatch);
+        for (const match of specialMatches) {
+            data[0] = [];
+            data[0]['name'] = '...';
+            data[0]['desc'] = match[1].replace(/(<a[^>]*>)/g, '').replace('</a>', '').replace('&nbsp;', '') + '\u200B' + match[2].replace(/(<a[^>]*>)/g, '').replace('</a>', '').replace('&nbsp;', '');
+        }
+    }
+
+    if ((titles.length > 0 && contents.length > 0) && titles.length === contents.length) {
+        for (let i = 0; titles.length > i; i++) {
+            data[i]         = [];
+            data[i]['name'] = titles[i];
+            data[i]['desc'] = contents[i];
         }
     }
 
 
-    return images;
+    return data;
 }
 
 
-async function buildEmbed(hero, images) {
+async function buildEmbed(hero, pairs) {
 
     const heroData    = await heroes(hero);
     let embeds        = [];
@@ -138,14 +163,14 @@ async function buildEmbed(hero, images) {
     }
 
 
-    for (let i = 0; images.length > i; i++) {
+    for (let i = 0; pairs.length > i; i++) {
 
         let exampleEmbed = new EmbedBuilder()
             .setColor(color)
-            .setTitle(heroData.name.value)
-            .setDescription(`The ${heroData.name.value} Talent-Tree Guide is being provided by callofdragonsguides.com. These guides may not always be up to date!`)
+            .setTitle(`${heroData.name.value} & ${pairs[i]['name']}`)
+            .setDescription(`The ${heroData.name.value} pairings are being provided by callofdragonsguides.com. These pairings may not always be up to date!`)
             .setThumbnail(heroData.imgpc.value)
-            .setImage(images[i][0] || '')
+            .addFields({name: ' ', value: pairs[i]['desc'] || ''})
             .setTimestamp()
             .setFooter({text: 'Data provided by ESR Family ❤️',});
 
